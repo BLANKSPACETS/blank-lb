@@ -17,7 +17,7 @@
  * })
  *
  * export default {
- *   async fetch(request: Request): Promise<Response> {
+ *   async fetchAPI(request: Request): Promise<Response> {
  *     const program = Effect.gen(function* () {
  *       const loadBalancer = yield* LoadBalancer
  *       return yield* loadBalancer.handleRequest(request)
