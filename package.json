@@ -24,6 +24,10 @@
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "test": "vitest",
+    "test:watch": "vitest --watch",
+    "integration:backends": "bun run examples/integration/backends.ts",
+    "integration:worker": "cd examples/integration && wrangler dev",
+    "integration:test": "bun run examples/integration/test-runner.ts",
     "prepublishOnly": "bun run build"
   },
   "keywords": [
@@ -58,7 +62,8 @@
     "@types/bun": "latest",
     "elysia": "^1.4.22",
     "typescript": "^5.9.3",
-    "vitest": "^4.0.18"
+    "vitest": "^4.0.18",
+    "wrangler": "^4.61.1"
   },
   "peerDependencies": {
     "effect": "^3.0.0"

@@ -1,0 +1,14 @@
+name = "load-balancer-example"
+main = "worker.ts"
+compatibility_date = "2024-01-01"
+
+# Local development settings
+[dev]
+port = 8787
+
+# Enable Node.js compatibility for Effect
+[build]
+command = ""
+
+# Note: For local testing, the worker will connect to localhost backends
+# In production, replace the backend URLs with your actual server URLs
