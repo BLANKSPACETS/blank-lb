@@ -28,8 +28,6 @@
  * }
  * ```
  */
-
-// Core exports
 export { Endpoint, endpoint } from "./Endpoint.js"
 export type { EndpointUrl, HealthCheckPath } from "./Endpoint.js"
 
