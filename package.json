@@ -1,7 +1,7 @@
 {
   "name": "@blank-utils/load-balancer",
-  "version": "0.1.0",
-  "description": "A Cloudflare Workers-based load balancer built with Effect-TS",
+  "version": "1.0.0-rc.1",
+  "description": "A type-safe, composable load balancer for Cloudflare Workers built with Effect-TS",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -13,23 +13,44 @@
   },
   "files": [
     "dist",
-    "src"
+    "src",
+    "LICENSE",
+    "README.md",
+    "CHANGELOG.md"
   ],
+  "sideEffects": false,
   "scripts": {
     "prepare": "effect-language-service patch",
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
-    "test": "vitest"
+    "test": "vitest",
+    "prepublishOnly": "bun run build"
   },
   "keywords": [
     "effect",
+    "effect-ts",
     "cloudflare-workers",
+    "cloudflare",
     "load-balancer",
     "failover",
-    "geo-steering"
+    "geo-steering",
+    "health-check",
+    "edge-computing",
+    "typescript"
   ],
   "author": "blank",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kiritocode1/blank-lb.git"
+  },
+  "homepage": "https://github.com/kiritocode1/blank-lb#readme",
+  "bugs": {
+    "url": "https://github.com/kiritocode1/blank-lb/issues"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260129.0",
     "@effect/language-service": "^0.72.0",

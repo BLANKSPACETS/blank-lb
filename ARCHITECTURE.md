@@ -12,9 +12,6 @@ This document outlines the architecture, compares approaches, and proposes an Ef
 
 ---
 
-## Reference Analysis: `worker-lb`
-
-I've analyzed the [lawgdev/worker-lb](https://github.com/lawgdev/worker-lb) repository. Here's a breakdown:
 
 ### What It Does Well
 

@@ -6,7 +6,10 @@
         "declarationMap": true,
         "sourceMap": true,
         "noEmit": false,
-        "rootDir": "./src"
+        "rootDir": "./src",
+        "allowImportingTsExtensions": false,
+        "module": "ESNext",
+        "moduleResolution": "bundler"
     },
     "include": [
         "src/**/*"
