@@ -29,14 +29,27 @@ export type HealthCheckPath = typeof HealthCheckPath.Type
 export class Endpoint extends Schema.Class<Endpoint>("Endpoint")({
     /**
      * The base URL of the endpoint (e.g., "https://api.example.com")
+     * Must start with http:// or https://
      */
-    url: Schema.String,
+    url: Schema.String.pipe(
+        Schema.pattern(/^https?:\/\/.+/, {
+            message: () => "URL must start with http:// or https://",
+        }),
+    ),
 
     /**
      * Health check pathname for availability checks
+     * Must start with /
      * @default "/"
      */
-    healthCheckPath: Schema.optionalWith(Schema.String, { default: () => "/" }),
+    healthCheckPath: Schema.optionalWith(
+        Schema.String.pipe(
+            Schema.pattern(/^\/.*/, {
+                message: () => "Health check path must start with /",
+            }),
+        ),
+        { default: () => "/" },
+    ),
 
     /**
      * Weight for weighted load balancing (higher = more traffic)

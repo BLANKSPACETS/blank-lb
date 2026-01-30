@@ -15,6 +15,35 @@ describe("Endpoint", () => {
             expect(ep.timeoutMs).toBe(30000)
         })
 
+        it("creates endpoint with valid options", () => {
+            const ep = new Endpoint({
+                url: "https://api.example.com",
+                healthCheckPath: "/status",
+                weight: 5,
+            })
+
+            expect(ep.url).toBe("https://api.example.com")
+            expect(ep.healthCheckPath).toBe("/status")
+            expect(ep.weight).toBe(5)
+        })
+
+        it("throws on invalid URL", () => {
+            expect(() =>
+                new Endpoint({
+                    url: "invalid-url",
+                }),
+            ).toThrow()
+        })
+
+        it("throws on invalid health check path", () => {
+            expect(() =>
+                new Endpoint({
+                    url: "https://api.example.com",
+                    healthCheckPath: "status", // Missing leading slash
+                }),
+            ).toThrow()
+        })
+
         it("creates an endpoint with custom options", () => {
             const ep = new Endpoint({
                 url: "https://api.example.com",

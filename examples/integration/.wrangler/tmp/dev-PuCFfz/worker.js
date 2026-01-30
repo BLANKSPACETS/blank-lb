@@ -28071,13 +28071,26 @@ var HealthCheckPath = Schema_exports.String.pipe(
 var Endpoint = class extends Schema_exports.Class("Endpoint")({
   /**
    * The base URL of the endpoint (e.g., "https://api.example.com")
+   * Must start with http:// or https://
    */
-  url: Schema_exports.String,
+  url: Schema_exports.String.pipe(
+    Schema_exports.pattern(/^https?:\/\/.+/, {
+      message: /* @__PURE__ */ __name(() => "URL must start with http:// or https://", "message")
+    })
+  ),
   /**
    * Health check pathname for availability checks
+   * Must start with /
    * @default "/"
    */
-  healthCheckPath: Schema_exports.optionalWith(Schema_exports.String, { default: /* @__PURE__ */ __name(() => "/", "default") }),
+  healthCheckPath: Schema_exports.optionalWith(
+    Schema_exports.String.pipe(
+      Schema_exports.pattern(/^\/.*/, {
+        message: /* @__PURE__ */ __name(() => "Health check path must start with /", "message")
+      })
+    ),
+    { default: /* @__PURE__ */ __name(() => "/", "default") }
+  ),
   /**
    * Weight for weighted load balancing (higher = more traffic)
    * @default 1
