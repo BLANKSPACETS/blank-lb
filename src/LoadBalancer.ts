@@ -100,79 +100,79 @@ export class LoadBalancer extends Context.Tag("@blank-utils/LoadBalancer")<
                 const healthChecker = yield* HealthChecker
 
                 return {
-                    handleRequest: (request: CfRequest) => {
-                        // Determine which endpoints to try
-                        const endpointsToTry = getEndpointsToTry(options, request.cf)
+                    handleRequest: (request: CfRequest) =>
+                        Effect.gen(function* () {
+                            // Determine which endpoints to try
+                            const endpointsToTry = getEndpointsToTry(options, request.cf)
 
-                        if (endpointsToTry.length === 0) {
-                            return Effect.fail(
-                                new NoHealthyEndpointsError({ triedEndpoints: [] }),
-                            )
-                        }
-
-                        // Get availability method
-                        const availability = options.availability ?? {
-                            type: "fail-forward" as const,
-                            failoverOnStatuses: [502, 503, 504],
-                        }
-
-                        // Create recovery context
-                        let triedEndpoints: Endpoint[] = []
-                        let lastError: unknown
-                        const getContext = (): RecoveryContext => ({
-                            triedEndpoints,
-                            lastError,
-                        })
-
-                        // Build the effect based on availability method
-                        const healthCheckerLayer = Layer.succeed(HealthChecker, healthChecker)
-
-                        const runWithMethod = (): Effect.Effect<
-                            Response,
-                            NoHealthyEndpointsError
-                        > => {
-                            switch (availability.type) {
-                                case "fail-forward": {
-                                    const statuses = "failoverOnStatuses" in availability
-                                        ? availability.failoverOnStatuses
-                                        : [502, 503, 504]
-                                    return failForward(endpointsToTry, request, statuses)
-                                }
-                                case "async-block":
-                                    return asyncBlock(endpointsToTry, request).pipe(
-                                        Effect.provide(healthCheckerLayer),
-                                    )
-                                case "promise-any":
-                                    return promiseAny(endpointsToTry, request).pipe(
-                                        Effect.provide(healthCheckerLayer),
-                                    )
+                            if (endpointsToTry.length === 0) {
+                                return yield* new NoHealthyEndpointsError({ triedEndpoints: [] })
                             }
-                        }
 
-                        let effect = runWithMethod()
+                            // Get availability method
+                            const availability = options.availability ?? {
+                                type: "fail-forward" as const,
+                                failoverOnStatuses: [502, 503, 504],
+                            }
 
-                        // Track tried endpoints from error
-                        effect = effect.pipe(
-                            Effect.tapError((error) =>
-                                Effect.sync(() => {
-                                    triedEndpoints = [...error.triedEndpoints]
-                                    lastError = error.lastError
-                                }),
-                            ),
-                        )
+                            // Create recovery context (mutable per-request state is safe)
+                            let triedEndpoints: Endpoint[] = []
+                            let lastError: unknown
 
-                        // Apply recovery function if provided
-                        if (options.recoveryFn) {
-                            effect = withRecovery(
-                                effect,
-                                request,
-                                options.recoveryFn,
-                                getContext,
+                            const getContext = (): RecoveryContext => ({
+                                triedEndpoints,
+                                lastError,
+                            })
+
+                            // Build the effect based on availability method
+                            const healthCheckerLayer = Layer.succeed(HealthChecker, healthChecker)
+
+                            const runWithMethod = (): Effect.Effect<
+                                Response,
+                                NoHealthyEndpointsError
+                            > => {
+                                switch (availability.type) {
+                                    case "fail-forward": {
+                                        const statuses = "failoverOnStatuses" in availability
+                                            ? availability.failoverOnStatuses
+                                            : [502, 503, 504]
+                                        return failForward(endpointsToTry, request, statuses)
+                                    }
+                                    case "async-block":
+                                        return asyncBlock(endpointsToTry, request).pipe(
+                                            Effect.provide(healthCheckerLayer),
+                                        )
+                                    case "promise-any":
+                                        return promiseAny(endpointsToTry, request).pipe(
+                                            Effect.provide(healthCheckerLayer),
+                                        )
+                                }
+                            }
+
+                            let effect = runWithMethod()
+
+                            // Track tried endpoints from error
+                            effect = effect.pipe(
+                                Effect.tapError((error) =>
+                                    Effect.sync(() => {
+                                        triedEndpoints = [...error.triedEndpoints]
+                                        lastError = error.lastError
+                                    }),
+                                ),
                             )
-                        }
 
-                        return effect
-                    },
+                            // Apply recovery function if provided
+                            if (options.recoveryFn) {
+                                effect = withRecovery(
+                                    effect,
+                                    request,
+                                    options.recoveryFn,
+                                    getContext,
+                                )
+                            }
+
+                            return yield* effect
+                        }),
                 }
             }),
         )

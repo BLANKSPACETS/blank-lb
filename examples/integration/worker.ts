@@ -4,7 +4,7 @@
  * This worker uses the load balancer to route requests
  * to backend servers based on availability and geo location.
  */
-import { Effect } from "effect"
+import { Effect, Exit, Cause } from "effect"
 import { LoadBalancer, endpoint, geoEndpoint } from "../../src/index.js"
 
 // Backend endpoints (change these to your actual backends)
@@ -64,20 +64,25 @@ const handleRequest = (request: Request) =>
 // Cloudflare Worker export
 export default {
     async fetch(request: Request): Promise<Response> {
-        try {
-            return await Effect.runPromise(handleRequest(request))
-        } catch (error) {
-            console.error("Load balancer error:", error)
-            return new Response(
-                JSON.stringify({
-                    error: "Load balancer error",
-                    message: error instanceof Error ? error.message : String(error),
-                }),
-                {
-                    status: 500,
-                    headers: { "Content-Type": "application/json" },
-                },
-            )
-        }
+        // Use Effect.runPromiseExit for proper structured error handling
+        const exit = await Effect.runPromiseExit(handleRequest(request))
+
+        return Exit.match(exit, {
+            onFailure: (cause) => {
+                const error = Cause.pretty(cause)
+                console.error("Load balancer error:", error)
+                return new Response(
+                    JSON.stringify({
+                        error: "Load balancer error",
+                        details: error,
+                    }),
+                    {
+                        status: 500,
+                        headers: { "Content-Type": "application/json" },
+                    },
+                )
+            },
+            onSuccess: (response) => response,
+        })
     },
 }
