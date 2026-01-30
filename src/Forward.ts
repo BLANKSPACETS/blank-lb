@@ -3,7 +3,7 @@
  *
  * Forward requests to endpoints
  */
-import { Effect } from "effect"
+import { Effect, Schedule, Duration } from "effect"
 import type { Endpoint } from "./Endpoint.js"
 import { RequestForwardError } from "./Errors.js"
 
@@ -22,6 +22,32 @@ export const methodSupportsBody = (method: string): boolean =>
  * Buffered body type - either ArrayBuffer for methods that support body, or null
  */
 export type BufferedBody = ArrayBuffer | null
+
+/**
+ * Retry policy options for requests to endpoints.
+ */
+export interface RetryOptions {
+    /**
+     * Maximum number of retries per endpoint
+     * @default 0
+     */
+    readonly maxRetries?: number
+    /**
+     * Initial delay before first retry
+     * @default "100 millis"
+     */
+    readonly initialDelay?: Duration.DurationInput
+    /**
+     * Maximum backoff delay
+     * @default "5 seconds"
+     */
+    readonly maxDelay?: Duration.DurationInput
+    /**
+     * Exponential backoff factor
+     * @default 2
+     */
+    readonly factor?: number
+}
 
 /**
  * Buffer a request body for potential retries.
@@ -92,6 +118,40 @@ export const forwardRequest = (
 
         return response
     })
+
+/**
+ * Forward a request with retry policy (exponential backoff).
+ * 
+ * @param endpoint - The endpoint to forward to
+ * @param request - The original request
+ * @param bufferedBody - Pre-buffered body for retries
+ * @param retryOptions - Retry configuration
+ */
+export const forwardRequestWithRetry = (
+    endpoint: Endpoint,
+    request: Request,
+    bufferedBody: BufferedBody = null,
+    retryOptions?: RetryOptions,
+): Effect.Effect<Response, RequestForwardError> => {
+    const effect = forwardRequest(endpoint, request, bufferedBody)
+
+    if (!retryOptions || (retryOptions.maxRetries ?? 0) <= 0) {
+        return effect
+    }
+
+    const {
+        maxRetries = 0,
+        initialDelay = "100 millis",
+        factor = 2,
+    } = retryOptions
+
+    // Schedule: Exponential backoff limited by max retries
+    const policy = Schedule.exponential(initialDelay, factor).pipe(
+        Schedule.intersect(Schedule.recurs(maxRetries)),
+    )
+
+    return effect.pipe(Effect.retry(policy))
+}
 
 /**
  * Forward a request to an endpoint (legacy API - buffers body internally).
