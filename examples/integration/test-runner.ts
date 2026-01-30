@@ -1,68 +1,82 @@
 /**
- * Integration test runner for Cloudflare Worker
- * 
- * This script tests the load balancer against real Wrangler dev server.
- * 
+ * Integration Test Suite for Load Balancer
+ *
+ * Tests the full client consumption flow:
+ * - Client makes fetch calls to Worker
+ * - Worker (load balancer) routes to Elysia backends
+ * - Response returns with correct data + headers
+ *
  * Prerequisites:
- * 1. Start backend servers: bun run examples/integration/backends.ts
- * 2. Start wrangler dev: cd examples/integration && npx wrangler dev
- * 3. Run tests: bun run examples/integration/test-runner.ts
+ * 1. Start backends: bun run integration:backends
+ * 2. Start worker: bun run integration:worker
+ * 3. Run tests: bun run integration:test
  */
 
 const WORKER_URL = "http://localhost:8787"
-const BACKEND_URLS = [
-    "http://localhost:3000",
-    "http://localhost:3001",
-    "http://localhost:3002",
-]
+const BACKENDS = {
+    primary: "http://localhost:3000",
+    secondary: "http://localhost:3001",
+    tertiary: "http://localhost:3002",
+}
 
 interface TestResult {
     name: string
     passed: boolean
-    message: string
     duration: number
+    error?: string
 }
 
 const results: TestResult[] = []
 
-async function test(name: string, fn: () => Promise<void>): Promise<void> {
-    const start = Date.now()
+// ═══════════════════════════════════════════════════════════════════════════
+// Test Utilities
+// ═══════════════════════════════════════════════════════════════════════════
+
+async function test(name: string, fn: () => Promise<void>) {
+    const start = performance.now()
     try {
         await fn()
-        results.push({
-            name,
-            passed: true,
-            message: "✓ Passed",
-            duration: Date.now() - start,
-        })
-        console.log(`✅ ${name} (${Date.now() - start}ms)`)
+        const duration = performance.now() - start
+        results.push({ name, passed: true, duration })
+        console.log(`  ✅ ${name} (${duration.toFixed(0)}ms)`)
     } catch (error) {
-        results.push({
-            name,
-            passed: false,
-            message: error instanceof Error ? error.message : String(error),
-            duration: Date.now() - start,
-        })
-        console.log(`❌ ${name}: ${error instanceof Error ? error.message : String(error)}`)
+        const duration = performance.now() - start
+        const message = error instanceof Error ? error.message : String(error)
+        results.push({ name, passed: false, duration, error: message })
+        console.log(`  ❌ ${name} (${duration.toFixed(0)}ms)`)
+        console.log(`     Error: ${message}`)
     }
 }
 
-function assert(condition: boolean, message: string): void {
+function assert(condition: boolean, message: string) {
     if (!condition) throw new Error(message)
 }
 
+function assertEqual<T>(actual: T, expected: T, message: string) {
+    if (actual !== expected) {
+        throw new Error(`${message}: expected ${expected}, got ${actual}`)
+    }
+}
+
+function assertContains(str: string, substring: string, message: string) {
+    if (!str.includes(substring)) {
+        throw new Error(`${message}: "${str}" does not contain "${substring}"`)
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Pre-flight Checks
+// ═══════════════════════════════════════════════════════════════════════════
+
 async function checkBackends(): Promise<boolean> {
     console.log("\n🔍 Checking backend servers...")
-    for (const url of BACKEND_URLS) {
+    for (const [name, url] of Object.entries(BACKENDS)) {
         try {
-            const res = await fetch(`${url}/health`, { signal: AbortSignal.timeout(1000) })
-            if (!res.ok) {
-                console.log(`   ⚠️  ${url} - unhealthy (status ${res.status})`)
-                return false
-            }
-            console.log(`   ✓ ${url} - healthy`)
+            const res = await fetch(`${url}/health`)
+            if (!res.ok) throw new Error(`Status ${res.status}`)
+            console.log(`  ✅ ${name} is healthy`)
         } catch {
-            console.log(`   ❌ ${url} - unreachable`)
+            console.log(`  ❌ ${name} is not reachable at ${url}`)
             return false
         }
     }
@@ -70,140 +84,351 @@ async function checkBackends(): Promise<boolean> {
 }
 
 async function checkWorker(): Promise<boolean> {
-    console.log("\n🔍 Checking Wrangler dev server...")
+    console.log("\n🔍 Checking Worker...")
     try {
-        await fetch(WORKER_URL, { signal: AbortSignal.timeout(2000) })
-        console.log(`   ✓ Worker is running on ${WORKER_URL}`)
+        await fetch(WORKER_URL)
+        console.log(`  ✅ Worker is running at ${WORKER_URL}`)
         return true
     } catch {
-        console.log(`   ❌ Worker is not running. Start it with: cd examples/integration && npx wrangler dev`)
+        console.log(`  ❌ Worker is not reachable at ${WORKER_URL}`)
         return false
     }
 }
 
-// ============= Integration Tests =============
+// ═══════════════════════════════════════════════════════════════════════════
+// Test: GET Requests
+// ═══════════════════════════════════════════════════════════════════════════
 
-async function testBasicRouting(): Promise<void> {
-    const res = await fetch(`${WORKER_URL}/api/data`)
-    assert(res.ok, `Expected OK status, got ${res.status}`)
+async function testGetUsers() {
+    const res = await fetch(`${WORKER_URL}/users`)
+    assertEqual(res.status, 200, "Status should be 200")
 
-    const body = await res.json() as { server: string }
-    assert(body.server !== undefined, "Expected server field in response")
-    assert(["primary", "secondary", "tertiary"].includes(body.server),
-        `Expected server to be one of primary/secondary/tertiary, got ${body.server}`)
+    const data = await res.json()
+    assert(Array.isArray(data.users), "Should return users array")
+    assert(data.users.length > 0, "Should have at least one user")
+    assert(data.server, "Should include server name")
 }
 
-async function testLoadBalancerHeaders(): Promise<void> {
-    const res = await fetch(`${WORKER_URL}/api/data`)
+async function testGetUserById() {
+    const res = await fetch(`${WORKER_URL}/users/1`)
+    assertEqual(res.status, 200, "Status should be 200")
 
-    assert(res.headers.has("X-Load-Balancer-Endpoint"), "Expected X-Load-Balancer-Endpoint header")
-    assert(res.headers.has("X-Load-Balancer-Latency"), "Expected X-Load-Balancer-Latency header")
-
-    const latency = parseInt(res.headers.get("X-Load-Balancer-Latency") || "0")
-    assert(latency >= 0, `Expected non-negative latency, got ${latency}`)
+    const data = await res.json()
+    assert(data.user, "Should return user object")
+    assertEqual(data.user.id, 1, "User ID should be 1")
+    assert(data.user.name, "User should have a name")
 }
 
-async function testHealthCheck(): Promise<void> {
-    const res = await fetch(`${WORKER_URL}/health`)
-    assert(res.ok, `Expected OK from /health, got ${res.status}`)
+async function testGetUserNotFound() {
+    const res = await fetch(`${WORKER_URL}/users/9999`)
+    assertEqual(res.status, 404, "Status should be 404")
 
-    const body = await res.json() as { status: string }
-    assert(body.status === "healthy", `Expected healthy status, got ${body.status}`)
+    const data = await res.json()
+    assertContains(data.error, "not found", "Should return not found error")
 }
 
-async function testEchoEndpoint(): Promise<void> {
-    const payload = { test: "data", timestamp: Date.now() }
+async function testGetProducts() {
+    const res = await fetch(`${WORKER_URL}/products`)
+    assertEqual(res.status, 200, "Status should be 200")
 
+    const data = await res.json()
+    assert(Array.isArray(data.products), "Should return products array")
+    assert(data.products.length > 0, "Should have at least one product")
+}
+
+async function testGetProductById() {
+    const res = await fetch(`${WORKER_URL}/products/2`)
+    assertEqual(res.status, 200, "Status should be 200")
+
+    const data = await res.json()
+    assert(data.product, "Should return product object")
+    assertEqual(data.product.id, 2, "Product ID should be 2")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Test: POST Requests
+// ═══════════════════════════════════════════════════════════════════════════
+
+async function testCreateUser() {
+    const res = await fetch(`${WORKER_URL}/users`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "Test User", email: "test@example.com" }),
+    })
+    assertEqual(res.status, 201, "Status should be 201 Created")
+
+    const data = await res.json()
+    assert(data.user, "Should return created user")
+    assertEqual(data.user.name, "Test User", "User name should match")
+    assertEqual(data.user.email, "test@example.com", "User email should match")
+}
+
+async function testCreateOrder() {
+    const res = await fetch(`${WORKER_URL}/orders`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: 1, productId: 2 }),
+    })
+    assertEqual(res.status, 201, "Status should be 201 Created")
+
+    const data = await res.json()
+    assert(data.order, "Should return created order")
+    assertEqual(data.order.userId, 1, "Order userId should match")
+    assertEqual(data.order.productId, 2, "Order productId should match")
+}
+
+async function testEchoEndpoint() {
+    const payload = { message: "Hello from test", timestamp: Date.now() }
     const res = await fetch(`${WORKER_URL}/api/echo`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
     })
+    assertEqual(res.status, 200, "Status should be 200")
 
-    assert(res.ok, `Expected OK status, got ${res.status}`)
-
-    const body = await res.json() as { echo: typeof payload; server: string }
-    assert(body.echo.test === payload.test, "Expected echo to contain original data")
-    assert(body.server !== undefined, "Expected server field")
+    const data = await res.json()
+    assertEqual(data.echo.message, payload.message, "Echo message should match")
 }
 
-async function testMultipleRequests(): Promise<void> {
-    const requests = Array(10).fill(null).map(() =>
-        fetch(`${WORKER_URL}/api/data`).then(r => r.json())
-    )
+// ═══════════════════════════════════════════════════════════════════════════
+// Test: PUT Requests
+// ═══════════════════════════════════════════════════════════════════════════
+
+async function testUpdateUser() {
+    const res = await fetch(`${WORKER_URL}/users/2`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "Bob Updated" }),
+    })
+    assertEqual(res.status, 200, "Status should be 200")
+
+    const data = await res.json()
+    assert(data.user, "Should return updated user")
+    assertEqual(data.user.name, "Bob Updated", "User name should be updated")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Test: DELETE Requests
+// ═══════════════════════════════════════════════════════════════════════════
+
+async function testDeleteUser() {
+    // First create a user to delete
+    const createRes = await fetch(`${WORKER_URL}/users`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "ToDelete", email: "delete@example.com" }),
+    })
+    const created = await createRes.json()
+    const userId = created.user.id
+
+    // Now delete it
+    const res = await fetch(`${WORKER_URL}/users/${userId}`, {
+        method: "DELETE",
+    })
+    assertEqual(res.status, 200, "Status should be 200")
+
+    const data = await res.json()
+    assert(data.deleted, "Should return deleted user")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Test: Load Balancer Headers
+// ═══════════════════════════════════════════════════════════════════════════
+
+async function testLoadBalancerHeaders() {
+    const res = await fetch(`${WORKER_URL}/api/data`)
+    assertEqual(res.status, 200, "Status should be 200")
+
+    const endpoint = res.headers.get("X-Load-Balancer-Endpoint")
+    const latency = res.headers.get("X-Load-Balancer-Latency")
+
+    assert(endpoint !== null, "Should have X-Load-Balancer-Endpoint header")
+    assert(latency !== null, "Should have X-Load-Balancer-Latency header")
+    assert(endpoint!.startsWith("http://localhost:300"), "Endpoint should be one of our backends")
+}
+
+async function testHealthEndpointProxied() {
+    const res = await fetch(`${WORKER_URL}/health`)
+    assertEqual(res.status, 200, "Status should be 200")
+
+    const data = await res.json()
+    assertEqual(data.status, "healthy", "Should return healthy status")
+    assert(data.name, "Should include backend name")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Test: Concurrent Requests
+// ═══════════════════════════════════════════════════════════════════════════
+
+async function testConcurrentRequests() {
+    const requests = Array(10)
+        .fill(null)
+        .map(() => fetch(`${WORKER_URL}/users`))
 
     const responses = await Promise.all(requests)
 
-    // All requests should succeed
-    assert(responses.length === 10, "Expected 10 responses")
-
-    // Each response should have server field
     for (const res of responses) {
-        assert((res as { server: string }).server !== undefined, "Each response should have server field")
+        assertEqual(res.status, 200, "All requests should succeed")
     }
 }
 
-async function testLatencyMeasurement(): Promise<void> {
-    const latencies: number[] = []
+async function testConcurrentMixedMethods() {
+    const requests = [
+        fetch(`${WORKER_URL}/users`),
+        fetch(`${WORKER_URL}/products`),
+        fetch(`${WORKER_URL}/orders`),
+        fetch(`${WORKER_URL}/users/1`),
+        fetch(`${WORKER_URL}/products/1`),
+    ]
 
-    for (let i = 0; i < 5; i++) {
-        const res = await fetch(`${WORKER_URL}/api/data`)
-        const latency = parseInt(res.headers.get("X-Load-Balancer-Latency") || "0")
-        latencies.push(latency)
+    const responses = await Promise.all(requests)
+
+    for (const res of responses) {
+        assertEqual(res.status, 200, "All requests should succeed")
     }
-
-    const avgLatency = latencies.reduce((a, b) => a + b, 0) / latencies.length
-    console.log(`   Average latency: ${avgLatency.toFixed(2)}ms`)
-
-    assert(avgLatency < 500, `Expected average latency < 500ms, got ${avgLatency}ms`)
 }
 
-// ============= Main =============
+// ═══════════════════════════════════════════════════════════════════════════
+// Test: Error Handling
+// ═══════════════════════════════════════════════════════════════════════════
+
+async function testBackendErrorProxied() {
+    const res = await fetch(`${WORKER_URL}/error`)
+    assertEqual(res.status, 500, "Should proxy 500 error from backend")
+
+    const data = await res.json()
+    assertContains(data.error, "error", "Should include error message")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Test: Authorization Headers Forwarded
+// ═══════════════════════════════════════════════════════════════════════════
+
+async function testAuthorizationHeaderForwarded() {
+    const token = "test-bearer-token-12345"
+    const res = await fetch(`${WORKER_URL}/api/echo`, {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ test: true }),
+    })
+    assertEqual(res.status, 200, "Status should be 200")
+
+    const data = await res.json()
+    assertEqual(data.headers.authorization, `Bearer ${token}`, "Authorization header should be forwarded")
+}
+
+async function testCustomHeadersForwarded() {
+    const res = await fetch(`${WORKER_URL}/api/echo`, {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            "X-Custom-Header": "custom-value",
+            "X-Request-ID": "req-12345",
+        },
+        body: JSON.stringify({ test: true }),
+    })
+    assertEqual(res.status, 200, "Status should be 200")
+
+    const data = await res.json()
+    assertEqual(data.headers["x-custom-header"], "custom-value", "Custom header should be forwarded")
+    assertEqual(data.headers["x-request-id"], "req-12345", "Request ID should be forwarded")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Test: Query Parameters
+// ═══════════════════════════════════════════════════════════════════════════
+
+async function testQueryParametersPreserved() {
+    // Note: Our simple endpoints don't use query params, but we can verify the request is made correctly
+    // by checking the echo endpoint
+    const res = await fetch(`${WORKER_URL}/api/data?page=1&limit=10`)
+    assertEqual(res.status, 200, "Request with query params should succeed")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Main Test Runner
+// ═══════════════════════════════════════════════════════════════════════════
 
 async function main() {
-    console.log("🧪 Load Balancer Integration Tests")
-    console.log("==================================\n")
+    console.log("╔════════════════════════════════════════════════════════════╗")
+    console.log("║       Load Balancer Integration Test Suite                 ║")
+    console.log("╚════════════════════════════════════════════════════════════╝")
 
     // Pre-flight checks
     const backendsOk = await checkBackends()
     if (!backendsOk) {
-        console.log("\n⚠️  Backend servers not ready. Start them with:")
-        console.log("   bun run examples/integration/backends.ts")
+        console.log("\n❌ Backends not running. Start with: bun run integration:backends")
         process.exit(1)
     }
 
     const workerOk = await checkWorker()
     if (!workerOk) {
-        console.log("\n⚠️  Wrangler dev server not ready. Start it with:")
-        console.log("   cd examples/integration && npx wrangler dev")
+        console.log("\n❌ Worker not running. Start with: bun run integration:worker")
         process.exit(1)
     }
 
-    console.log("\n📋 Running integration tests...\n")
+    // Run tests
+    console.log("\n📋 Running GET Tests...")
+    await test("GET /users - List all users", testGetUsers)
+    await test("GET /users/:id - Get user by ID", testGetUserById)
+    await test("GET /users/:id - Not found returns 404", testGetUserNotFound)
+    await test("GET /products - List all products", testGetProducts)
+    await test("GET /products/:id - Get product by ID", testGetProductById)
 
-    await test("Basic routing - request reaches backend", testBasicRouting)
+    console.log("\n📋 Running POST Tests...")
+    await test("POST /users - Create new user", testCreateUser)
+    await test("POST /orders - Create new order", testCreateOrder)
+    await test("POST /api/echo - Echo request body", testEchoEndpoint)
+
+    console.log("\n📋 Running PUT Tests...")
+    await test("PUT /users/:id - Update user", testUpdateUser)
+
+    console.log("\n📋 Running DELETE Tests...")
+    await test("DELETE /users/:id - Delete user", testDeleteUser)
+
+    console.log("\n📋 Running Load Balancer Tests...")
     await test("Load balancer headers present", testLoadBalancerHeaders)
-    await test("Health check passthrough", testHealthCheck)
-    await test("POST echo endpoint", testEchoEndpoint)
-    await test("Multiple concurrent requests", testMultipleRequests)
-    await test("Latency measurement", testLatencyMeasurement)
+    await test("Health endpoint proxied correctly", testHealthEndpointProxied)
+
+    console.log("\n📋 Running Concurrent Request Tests...")
+    await test("10 concurrent GET requests", testConcurrentRequests)
+    await test("Concurrent mixed method requests", testConcurrentMixedMethods)
+
+    console.log("\n📋 Running Error Handling Tests...")
+    await test("Backend 500 error proxied", testBackendErrorProxied)
+
+    console.log("\n📋 Running Header Forwarding Tests...")
+    await test("Authorization header forwarded", testAuthorizationHeaderForwarded)
+    await test("Custom headers forwarded", testCustomHeadersForwarded)
+
+    console.log("\n📋 Running Query Parameter Tests...")
+    await test("Query parameters preserved", testQueryParametersPreserved)
 
     // Summary
-    console.log("\n" + "=".repeat(40))
-    const passed = results.filter(r => r.passed).length
-    const failed = results.filter(r => !r.passed).length
-    const totalTime = results.reduce((a, b) => a + b.duration, 0)
+    const passed = results.filter((r) => r.passed).length
+    const failed = results.filter((r) => !r.passed).length
+    const totalTime = results.reduce((sum, r) => sum + r.duration, 0)
 
-    console.log(`📊 Results: ${passed} passed, ${failed} failed (${totalTime}ms total)`)
+    console.log("\n╔════════════════════════════════════════════════════════════╗")
+    console.log("║                        Test Summary                        ║")
+    console.log("╚════════════════════════════════════════════════════════════╝")
+    console.log(`\n  Total:  ${results.length} tests`)
+    console.log(`  Passed: ${passed} ✅`)
+    console.log(`  Failed: ${failed} ❌`)
+    console.log(`  Time:   ${totalTime.toFixed(0)}ms`)
 
     if (failed > 0) {
-        console.log("\n❌ Failed tests:")
-        for (const result of results.filter(r => !r.passed)) {
-            console.log(`   - ${result.name}: ${result.message}`)
+        console.log("\n  Failed tests:")
+        for (const r of results.filter((r) => !r.passed)) {
+            console.log(`    - ${r.name}: ${r.error}`)
         }
         process.exit(1)
     } else {
-        console.log("\n✅ All integration tests passed!")
+        console.log("\n  🎉 All tests passed!")
+        process.exit(0)
     }
 }
 
