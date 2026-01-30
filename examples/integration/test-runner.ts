@@ -26,6 +26,69 @@ interface TestResult {
     error?: string
 }
 
+// Response Types
+interface User {
+    id: number
+    name: string
+    email?: string
+}
+
+interface Product {
+    id: number
+    name: string
+    price: number
+}
+
+interface Order {
+    id: number
+    userId: number
+    productId: number
+}
+
+interface UsersResponse {
+    users: User[]
+    server: string
+}
+
+interface UserResponse {
+    user: User
+    server?: string
+}
+
+interface ProductsResponse {
+    products: Product[]
+    server?: string
+}
+
+interface ProductResponse {
+    product: Product
+    server?: string
+}
+
+interface OrderResponse {
+    order: Order
+    server?: string
+}
+
+interface ErrorResponse {
+    error: string
+}
+
+interface HealthResponse {
+    status: string
+    name: string
+}
+
+interface EchoResponse {
+    echo: { message: string; timestamp?: number }
+    headers: Record<string, string>
+}
+
+interface DeletedResponse {
+    deleted: User
+    server?: string
+}
+
 const results: TestResult[] = []
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -48,7 +111,7 @@ async function test(name: string, fn: () => Promise<void>) {
     }
 }
 
-function assert(condition: boolean, message: string) {
+function assert(condition: unknown, message: string): asserts condition {
     if (!condition) throw new Error(message)
 }
 
@@ -103,7 +166,7 @@ async function testGetUsers() {
     const res = await fetch(`${WORKER_URL}/users`)
     assertEqual(res.status, 200, "Status should be 200")
 
-    const data = await res.json()
+    const data = (await res.json()) as UsersResponse
     assert(Array.isArray(data.users), "Should return users array")
     assert(data.users.length > 0, "Should have at least one user")
     assert(data.server, "Should include server name")
@@ -113,7 +176,7 @@ async function testGetUserById() {
     const res = await fetch(`${WORKER_URL}/users/1`)
     assertEqual(res.status, 200, "Status should be 200")
 
-    const data = await res.json()
+    const data = (await res.json()) as UserResponse
     assert(data.user, "Should return user object")
     assertEqual(data.user.id, 1, "User ID should be 1")
     assert(data.user.name, "User should have a name")
@@ -123,7 +186,7 @@ async function testGetUserNotFound() {
     const res = await fetch(`${WORKER_URL}/users/9999`)
     assertEqual(res.status, 404, "Status should be 404")
 
-    const data = await res.json()
+    const data = (await res.json()) as ErrorResponse
     assertContains(data.error, "not found", "Should return not found error")
 }
 
@@ -131,7 +194,7 @@ async function testGetProducts() {
     const res = await fetch(`${WORKER_URL}/products`)
     assertEqual(res.status, 200, "Status should be 200")
 
-    const data = await res.json()
+    const data = (await res.json()) as ProductsResponse
     assert(Array.isArray(data.products), "Should return products array")
     assert(data.products.length > 0, "Should have at least one product")
 }
@@ -140,7 +203,7 @@ async function testGetProductById() {
     const res = await fetch(`${WORKER_URL}/products/2`)
     assertEqual(res.status, 200, "Status should be 200")
 
-    const data = await res.json()
+    const data = (await res.json()) as ProductResponse
     assert(data.product, "Should return product object")
     assertEqual(data.product.id, 2, "Product ID should be 2")
 }
@@ -157,7 +220,7 @@ async function testCreateUser() {
     })
     assertEqual(res.status, 201, "Status should be 201 Created")
 
-    const data = await res.json()
+    const data = (await res.json()) as UserResponse
     assert(data.user, "Should return created user")
     assertEqual(data.user.name, "Test User", "User name should match")
     assertEqual(data.user.email, "test@example.com", "User email should match")
@@ -171,7 +234,7 @@ async function testCreateOrder() {
     })
     assertEqual(res.status, 201, "Status should be 201 Created")
 
-    const data = await res.json()
+    const data = (await res.json()) as OrderResponse
     assert(data.order, "Should return created order")
     assertEqual(data.order.userId, 1, "Order userId should match")
     assertEqual(data.order.productId, 2, "Order productId should match")
@@ -186,7 +249,7 @@ async function testEchoEndpoint() {
     })
     assertEqual(res.status, 200, "Status should be 200")
 
-    const data = await res.json()
+    const data = (await res.json()) as { echo: { message: string } }
     assertEqual(data.echo.message, payload.message, "Echo message should match")
 }
 
@@ -202,7 +265,7 @@ async function testUpdateUser() {
     })
     assertEqual(res.status, 200, "Status should be 200")
 
-    const data = await res.json()
+    const data = (await res.json()) as UserResponse
     assert(data.user, "Should return updated user")
     assertEqual(data.user.name, "Bob Updated", "User name should be updated")
 }
@@ -218,7 +281,7 @@ async function testDeleteUser() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: "ToDelete", email: "delete@example.com" }),
     })
-    const created = await createRes.json()
+    const created = (await createRes.json()) as UserResponse
     const userId = created.user.id
 
     // Now delete it
@@ -227,7 +290,7 @@ async function testDeleteUser() {
     })
     assertEqual(res.status, 200, "Status should be 200")
 
-    const data = await res.json()
+    const data = (await res.json()) as DeletedResponse
     assert(data.deleted, "Should return deleted user")
 }
 
@@ -251,7 +314,7 @@ async function testHealthEndpointProxied() {
     const res = await fetch(`${WORKER_URL}/health`)
     assertEqual(res.status, 200, "Status should be 200")
 
-    const data = await res.json()
+    const data = (await res.json()) as HealthResponse
     assertEqual(data.status, "healthy", "Should return healthy status")
     assert(data.name, "Should include backend name")
 }
@@ -296,7 +359,7 @@ async function testBackendErrorProxied() {
     const res = await fetch(`${WORKER_URL}/error`)
     assertEqual(res.status, 500, "Should proxy 500 error from backend")
 
-    const data = await res.json()
+    const data = (await res.json()) as ErrorResponse
     assertContains(data.error, "error", "Should include error message")
 }
 
@@ -316,7 +379,7 @@ async function testAuthorizationHeaderForwarded() {
     })
     assertEqual(res.status, 200, "Status should be 200")
 
-    const data = await res.json()
+    const data = (await res.json()) as EchoResponse
     assertEqual(data.headers.authorization, `Bearer ${token}`, "Authorization header should be forwarded")
 }
 
@@ -332,7 +395,7 @@ async function testCustomHeadersForwarded() {
     })
     assertEqual(res.status, 200, "Status should be 200")
 
-    const data = await res.json()
+    const data = (await res.json()) as EchoResponse
     assertEqual(data.headers["x-custom-header"], "custom-value", "Custom header should be forwarded")
     assertEqual(data.headers["x-request-id"], "req-12345", "Request ID should be forwarded")
 }
