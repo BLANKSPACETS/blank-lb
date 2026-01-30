@@ -104,10 +104,12 @@ const createBackend = (config: ServerConfig) => {
                     set.status = 404
                     return { error: "User not found", server: name }
                 }
+                const existingUser = data.users[index]!
                 data.users[index] = {
-                    ...data.users[index],
-                    name: (body as { name?: string }).name ?? data.users[index].name,
-                    email: (body as { email?: string }).email ?? data.users[index].email,
+                    id: existingUser.id,
+                    name: (body as { name?: string }).name ?? existingUser.name,
+                    email: (body as { email?: string }).email ?? existingUser.email,
+                    server: existingUser.server,
                 }
                 return { user: data.users[index], server: name }
             },
